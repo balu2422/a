@@ -1,7 +1,7 @@
 terraform {
   backend "s3" {
-    bucket         = "my-aws-bucket-3550"
-    key            = "goutham/terraform.tfstate"
+    bucket         = "my-modulebucket"
+    key            = "terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
   }
