@@ -1,33 +1,37 @@
-resource "aws_vpc" "main_vpc" {
-  cidr_block = var.vpc_cidr
+resource "aws_vpc" "this" {
+  cidr_block = var.cidr_block
+
   tags = {
-    Name = var.vpc_name
+    Name = var.name
   }
 }
 
-resource "aws_subnet" "public_subnet_1" {
-  vpc_id = aws_vpc.main_vpc.id
-  cidr_block = var.public_subnet_1_cidr
-  availability_zone = var.public_subnet_1_az
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.this.id
+
   tags = {
-    Name = "${var.vpc_name}-public-1"
+    Name = "${var.name}-igw"
   }
 }
 
-resource "aws_subnet" "public_subnet_2" {
-  vpc_id = aws_vpc.main_vpc.id
-  cidr_block = var.public_subnet_2_cidr
-  availability_zone = var.public_subnet_2_az
+resource "aws_route_table" "this" {
+  vpc_id = aws_vpc.this.id
+
   tags = {
-    Name = "${var.vpc_name}-public-2"
+    Name = "${var.name}-rt"
   }
 }
 
-resource "aws_subnet" "public_subnet_3" {
-  vpc_id = aws_vpc.main_vpc.id
-  cidr_block = var.public_subnet_3_cidr
-  availability_zone = var.public_subnet_3_az
-  tags = {
-    Name = "${var.vpc_name}-public-3"
-  }
+resource "aws_route" "internet_access" {
+  route_table_id         = aws_route_table.this.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.this.id
+}
+
+output "vpc_id" {
+  value = aws_vpc.this.id
+}
+
+output "route_table_id" {
+  value = aws_route_table.this.id
 }
