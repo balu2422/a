@@ -34,7 +34,7 @@ jobs:
 
     - name: Terraform Init
       run: terraform init
-      working-directory: ./infra  # Specify the directory where your Terraform files are located
+      working-directory: Infra  # Specify the correct directory where your Terraform files are located
 
     - name: Perform Action
       run: |
@@ -45,4 +45,4 @@ jobs:
         else
           echo "Invalid action selected."
           exit 1
-      working-directory: ./infra  # Specify the directory where your Terraform files are located
+      working-directory: Infra  # Specify the correct directory where your Terraform files are located
