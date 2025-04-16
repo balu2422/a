@@ -1,173 +1,93 @@
-provider "aws" {
-  region = "us-east-2"
-}
-
 module "vpc" {
-  source     = "./modules/vpc"
-  cidr_block = var.vpc_cidr
-  name       = "ExampleVPC"
+  source                = "./modules/vpc"
+  name                  = "custom-vpc"
+  cidr_block            = "10.0.0.0/16"
+  public_subnet_count   = 3
+  public_subnet_cidrs   = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+  availability_zones    = ["us-east-1a", "us-east-1b", "us-east-1c"]
 }
 
-module "public_subnet_1" {
-  source            = "./modules/subnet"
-  vpc_id            = module.vpc.vpc_id
-  cidr_block        = var.subnet_cidrs[0]
-  availability_zone = var.availability_zones[0]
-  name              = "PublicSubnet-AZ1"
-}
+resource "aws_security_group" "alb_sg" {
+  name        = "alb-sg"
+  description = "Security group for ALB"
+  vpc_id      = module.vpc.vpc_id
 
-module "public_subnet_2" {
-  source            = "./modules/subnet"
-  vpc_id            = module.vpc.vpc_id
-  cidr_block        = var.subnet_cidrs[1]
-  availability_zone = var.availability_zones[1]
-  name              = "PublicSubnet-AZ2"
-}
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-module "public_subnet_3" {
-  source            = "./modules/subnet"
-  vpc_id            = module.vpc.vpc_id
-  cidr_block        = var.subnet_cidrs[2]
-  availability_zone = var.availability_zones[2]
-  name              = "PublicSubnet-AZ3"
-}
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-module "security_group" {
-  source = "./modules/security_group"
-  vpc_id = module.vpc.vpc_id
-  name   = "example-sg"
-}
-
-output "security_group_id" {
-  value = module.security_group.security_group_id
-}
-
-resource "aws_route_table_association" "public_subnet_1" {
-  subnet_id      = module.public_subnet_1.subnet_id
-  route_table_id = module.vpc.route_table_id
-}
-
-resource "aws_route_table_association" "public_subnet_2" {
-  subnet_id      = module.public_subnet_2.subnet_id
-  route_table_id = module.vpc.route_table_id
-}
-
-resource "aws_route_table_association" "public_subnet_3" {
-  subnet_id      = module.public_subnet_3.subnet_id
-  route_table_id = module.vpc.route_table_id
-}
-
-module "homepage_instance" {
-  source          = "./modules/ec2"
-  ami_id          = var.ami_id
-  instance_type   = var.instance_type
-  subnet_id       = module.public_subnet_1.subnet_id
-  security_group_id = module.security_group.security_group_id
-  associate_public_ip_address = true
-  user_data       = <<-EOF
-    #!/bin/bash
-    yum update -y
-    yum install -y nginx
-    echo "Welcome to the Homepage" > /usr/share/nginx/html/index.html
-    systemctl start nginx
-    systemctl enable nginx
-  EOF
-  name            = "Homepage"
-}
-
-module "images_instance" {
-  source          = "./modules/ec2"
-  ami_id          = var.ami_id
-  instance_type   = var.instance_type
-  subnet_id       = module.public_subnet_2.subnet_id
-  security_group_id = module.security_group.security_group_id
-  associate_public_ip_address = true
-  user_data       = <<-EOF
-    #!/bin/bash
-    yum update -y
-    yum install -y nginx
-    echo "Image Gallery" > /usr/share/nginx/html/images.html
-    systemctl start nginx
-    systemctl enable nginx
-  EOF
-  name            = "Images"
-}
-
-module "register_instance" {
-  source          = "./modules/ec2"
-  ami_id          = var.ami_id
-  instance_type   = var.instance_type
-  subnet_id       = module.public_subnet_3.subnet_id
-  security_group_id = module.security_group.security_group_id
-  associate_public_ip_address = true
-  user_data       = <<-EOF
-    #!/bin/bash
-    yum update -y
-    yum install -y nginx
-    echo "Register Here" > /usr/share/nginx/html/register.html
-    systemctl start nginx
-    systemctl enable nginx
-  EOF
-  name            = "Register"
-}
-
-module "homepage_tg" {
-  source    = "./modules/target_group"
-  name      = "homepage-tg"
-  vpc_id    = module.vpc.vpc_id
-  target_id = module.homepage_instance.instance_id
-}
-
-module "images_tg" {
-  source    = "./modules/target_group"
-  name      = "images-tg"
-  vpc_id    = module.vpc.vpc_id
-  target_id = module.images_instance.instance_id
-}
-
-module "register_tg" {
-  source    = "./modules/target_group"
-  name      = "register-tg"
-  vpc_id    = module.vpc.vpc_id
-  target_id = module.register_instance.instance_id
+  tags = {
+    Name = "alb-sg"
+  }
 }
 
 module "alb" {
-  source                  = "./modules/alb"
-  name                    = "example-alb"
-  security_groups         = [module.security_group.security_group_id]
-  subnets                 = [module.public_subnet_1.subnet_id, module.public_subnet_2.subnet_id, module.public_subnet_3.subnet_id]
-  default_target_group_arn = module.homepage_tg.target_group_arn
+  source          = "./modules/alb"
+  name            = "my-alb"
+  security_groups = [aws_security_group.alb_sg.id]
+  subnets         = module.vpc.public_subnet_ids
+  vpc_id          = module.vpc.vpc_id
 }
 
-resource "aws_lb_listener_rule" "images_rule" {
-  listener_arn = module.alb.listener_arn
-  priority     = 10
-
-  action {
-    type             = "forward"
-    target_group_arn = module.images_tg.target_group_arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/images*"]
-    }
-  }
+module "ec2_a" {
+  source          = "./modules/ec2"
+  name            = "instance-a"
+  ami             = var.ami
+  instance_type   = var.instance_type
+  subnet_id       = module.vpc.public_subnet_ids[0]
+  vpc_id          = module.vpc.vpc_id
+  target_group_arn = module.alb.target_group_arn
+  user_data       = <<-EOF
+                    #!/bin/bash
+                    apt-get update
+                    apt-get install -y nginx
+                    echo "Hello from Instance A" > /var/www/html/index.html
+                    systemctl start nginx
+                    EOF
 }
 
-resource "aws_lb_listener_rule" "register_rule" {
-  listener_arn = module.alb.listener_arn
-  priority     = 20
+module "ec2_b" {
+  source          = "./modules/ec2"
+  name            = "instance-b"
+  ami             = var.ami
+  instance_type   = var.instance_type
+  subnet_id       = module.vpc.public_subnet_ids[1]
+  vpc_id          = module.vpc.vpc_id
+  target_group_arn = module.alb.target_group_arn
+  user_data       = <<-EOF
+                    #!/bin/bash
+                    apt-get update
+                    apt-get install -y nginx
+                    mkdir -p /var/www/html/images
+                    echo "Hello from Instance B" > /var/www/html/images/index.html
+                    systemctl start nginx
+                    EOF
+}
 
-  action {
-    type             = "forward"
-    target_group_arn = module.register_tg.target_group_arn
-  }
-
-  condition {
-    path_pattern {
-      values = ["/register*"]
-    }
-  }
+module "ec2_c" {
+  source          = "./modules/ec2"
+  name            = "instance-c"
+  ami             = var.ami
+  instance_type   = var.instance_type
+  subnet_id       = module.vpc.public_subnet_ids[2]
+  vpc_id          = module.vpc.vpc_id
+  target_group_arn = module.alb.target_group_arn
+  user_data       = <<-EOF
+                    #!/bin/bash
+                    apt-get update
+                    apt-get install -y nginx
+                    mkdir -p /var/www/html/register
+                    echo "Hello from Instance C" > /var/www/html/register/index.html
+                    systemctl start nginx
+                    EOF
 }
